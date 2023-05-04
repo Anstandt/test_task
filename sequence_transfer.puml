@@ -1,0 +1,83 @@
+@startuml Transfersansfer
+actor       Client       as User
+participant "IB/MA"        as Client
+participant "User's front page\nMS" as UP
+participant "Transfers\nMS" as Transfers
+entity transfer
+entity transaction
+participant "User's Accounts\nMS" as Accounts 
+participant "Dictionaries MS" as Dict
+participant "External\nBank System" as External
+participant "Auth" as Auth
+
+User -> Client++: opens the application
+return application options
+
+== Transfer ==
+User -> Client++: chooses the Transfer option
+return transfer types
+
+User -> Client++: chooses "To individual's account" option
+    Client -> Accounts++: request GET accounts/?userId
+    return user's accounts list
+return list of the accounts
+
+User -> Client++: chooses the account "From" and continue
+    Client -> Accounts++: GET /accounts/{accountId}/check/transfer \nrequest the possibility of transfer from the selected account
+    return transfer is possible
+return 
+
+User -> Client++: enters the recipient's info, amount of the transfer
+    Client -> Dict++: check BIC\nGET /dictionaries/banks/?BIC
+    return
+    Client -> Transfers++: POST /comissions/count
+                
+        Transfers -> Transfers: calculate commission
+
+    return commission amount
+return
+
+User -> Client++: starts the transfer
+    Client -> Transfers: POST /transfers
+    activate Transfers
+        Transfers -> Dict++: check BIC\nGET /dictionaries/banks/?BIC
+        return
+        Transfers -> Transfers: checks the control sum\nof the recipient's acccount
+        
+        opt не прошла проверка контрольной суммы
+            Client <-- Transfers: 422: invalid recipient
+        end
+        
+        Transfers -> Accounts++: Get user's account GET/account/{accountId}
+        return              
+   
+        opt account.balance < amount+comission
+            Client <-- Transfers: 422: not enough money
+        end
+
+        Transfers -> transfer: save
+        Transfers -> Auth++: generate OTP
+            User <-- Auth: OTP
+        return OTP
+        Transfers -> transfer: save OTP        
+    Client <-- Transfers: 200: transferId
+    deactivate Transfers
+return
+
+User -> Client++: enters OTP
+    Client -> Transfers++: POST /transfers/confirm
+        alt OTP != transfer.otp            
+            Transfers -> transfer: delete OTP 
+
+            Client <-- Transfers: 422 Unprocessable
+        else
+            par 
+                Transfers -> transaction: withdrawal amount + comission\nfrom user's account
+                Transfers -> transaction: enrollment of commision\non the bank's aacount
+                Transfers -> External: assignment of enrollment on the external bank's account            
+            end
+        Client <-- Transfers: 200
+        end
+    deactivate Transfers
+return Result page
+@enduml
